@@ -36,21 +36,25 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // CORS
-const allowedOrigins = [
-  process.env.ADMIN_FRONTEND_URL || 'http://localhost:3001',
-  process.env.CLIENT_PORTAL_URL || 'http://localhost:3002'
-];
+if (process.env.NODE_ENV === 'production') {
+  const allowedOrigins = [
+    process.env.ADMIN_FRONTEND_URL,
+    process.env.CLIENT_PORTAL_URL
+  ].filter(Boolean);
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true
-}));
+  app.use(cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true
+  }));
+} else {
+  app.use(cors({ origin: true, credentials: true }));
+}
 
 // Body parsing
 app.use(express.json({ limit: '1mb' }));
