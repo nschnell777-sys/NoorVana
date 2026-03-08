@@ -313,12 +313,24 @@ const listAllTransactions = async (req, res, next) => {
     const countResult = await countQuery.clearSelect().count('points_transactions.id as total').first();
     const total = parseInt(countResult.total, 10);
 
+    // Summary stats across all matching transactions
+    const summaryResult = await query.clone().clearSelect().select(
+      db.raw("COUNT(*) as total_transactions"),
+      db.raw("COALESCE(SUM(CASE WHEN points_transactions.transaction_type = 'earn' THEN points_transactions.invoice_amount ELSE 0 END), 0) as total_revenue"),
+      db.raw("COUNT(DISTINCT points_transactions.client_id) as unique_clients")
+    ).first();
+
     const transactions = await query
       .orderBy(sortCol, sortDir)
       .limit(limit)
       .offset((page - 1) * limit);
 
     res.json({
+      summary: {
+        total_transactions: parseInt(summaryResult?.total_transactions, 10) || 0,
+        total_revenue: parseFloat(summaryResult?.total_revenue) || 0,
+        unique_clients: parseInt(summaryResult?.unique_clients, 10) || 0
+      },
       transactions,
       pagination: {
         page,

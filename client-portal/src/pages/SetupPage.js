@@ -95,16 +95,20 @@ const SetupPage = () => {
       }
 
       // Complete setup (with any profile updates)
-      await completeSetup(client.id, {
-        phone: phone || undefined,
-        address_street: street || undefined,
-        address_apt: apt || undefined,
-        address_city: city || undefined,
-        address_state: state || undefined,
-        address_zip: zip || undefined
-      });
+      const profileUpdates = {};
+      if (phone) profileUpdates.phone = phone;
+      if (street) profileUpdates.address_street = street;
+      profileUpdates.address_apt = apt || null;
+      if (city) profileUpdates.address_city = city;
+      if (state) profileUpdates.address_state = state;
+      if (zip) profileUpdates.address_zip = zip;
 
-      updateClient({ setup_completed: true });
+      await completeSetup(client.id, profileUpdates);
+
+      updateClient({
+        setup_completed: true,
+        ...profileUpdates
+      });
       window.location.href = '/dashboard';
     } catch (err) {
       console.error('Setup failed', err);

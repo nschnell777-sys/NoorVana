@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
+  Grid,
   Table,
   TableBody,
   TableCell,
@@ -49,6 +50,7 @@ const sortableColumns = [
 const TransactionsPage = () => {
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState([]);
+  const [summary, setSummary] = useState({ total_transactions: 0, total_revenue: 0, unique_clients: 0 });
   const [pagination, setPagination] = useState({ total: 0, total_pages: 0 });
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -74,6 +76,7 @@ const TransactionsPage = () => {
       if (sortOrder) params.sort_order = sortOrder;
       const { data } = await getAllTransactions(params);
       setTransactions(data.transactions || []);
+      if (data.summary) setSummary(data.summary);
       setPagination(data.pagination || { total: 0, total_pages: 0 });
     } catch (err) {
       console.error('Failed to load transactions', err);
@@ -167,6 +170,24 @@ const TransactionsPage = () => {
       <Typography variant="body2" sx={{ color: '#5C6B5E', mb: 3 }}>
         All points activity across clients from AxisCare billing
       </Typography>
+
+      {/* Summary Stats */}
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+        {[
+          { label: 'Total Transactions', value: summary.total_transactions.toLocaleString(), sub: `across ${summary.unique_clients} clients` },
+          { label: 'Avg Transactions / Client', value: summary.unique_clients ? Math.round(summary.total_transactions / summary.unique_clients).toLocaleString() : '0', sub: 'transactions per client' },
+          { label: 'Total Revenue', value: formatCurrency(summary.total_revenue), sub: 'total billed amount' },
+          { label: 'Avg Revenue / Client', value: summary.unique_clients ? formatCurrency(summary.total_revenue / summary.unique_clients) : '$0.00', sub: 'revenue per client' }
+        ].map((stat) => (
+          <Grid item xs={12} sm={6} md={3} key={stat.label}>
+            <Box sx={{ ...frostedCardSx, p: 3, textAlign: 'center', height: 130, display: 'flex', flexDirection: 'column', justifyContent: 'center', '&:hover': { transform: 'none' } }}>
+              <Typography variant="subtitle2" sx={{ color: '#5C6B5E', mb: 0.5 }}>{stat.label}</Typography>
+              <Typography variant="h4" sx={{ fontWeight: 700, fontFamily: '"Outfit", sans-serif', mb: 0.5 }}>{stat.value}</Typography>
+              <Typography variant="caption" sx={{ color: '#5C6B5E' }}>{stat.sub}</Typography>
+            </Box>
+          </Grid>
+        ))}
+      </Grid>
 
       {/* Search + Filters Row */}
       <Box sx={{

@@ -6,6 +6,8 @@ import {
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import SearchIcon from '@mui/icons-material/Search';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import { getGiftClaims, updateGiftClaim } from '../../services/api';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import StatusChip from '../../components/StatusChip';
@@ -39,6 +41,10 @@ const GiftsTab = ({ showToast, onCountChange }) => {
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [expandedGroups, setExpandedGroups] = useState({});
+  const [groupPages, setGroupPages] = useState({});
+
+  const toggleGroup = (name) => setExpandedGroups(prev => ({ ...prev, [name]: !prev[name] }));
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -116,7 +122,7 @@ const GiftsTab = ({ showToast, onCountChange }) => {
 
   return (
     <Box>
-      <Box sx={{ ...frostedCardSx, overflow: 'hidden', '&:hover': { transform: 'none' }, borderTop: '4px solid #5A8A7A' }}>
+      <Box sx={{ ...frostedCardSx, overflow: 'hidden', '&:hover': { transform: 'none' }, borderTop: '4px solid #D4956A' }}>
         <Box sx={{ px: 2.5, py: 1.5, borderBottom: '1px solid rgba(61,74,62,0.06)' }}>
           <Typography sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 600, fontSize: '16px', color: '#2D2D2D' }}>
             Gifts
@@ -164,7 +170,7 @@ const GiftsTab = ({ showToast, onCountChange }) => {
             <Button size="small" onClick={() => { setSearch(''); setDateFrom(''); setDateTo(''); }}
               sx={{ textTransform: 'none', color: '#5C6B5E', fontSize: '12px' }}>Clear</Button>
           )}
-          <Typography variant="caption" sx={{ color: '#9CA89E', ml: 'auto' }}>
+          <Typography variant="caption" sx={{ color: '#6B7A6D', ml: 'auto' }}>
             {displayed.length} result{displayed.length !== 1 ? 's' : ''}
           </Typography>
         </Box>
@@ -178,36 +184,56 @@ const GiftsTab = ({ showToast, onCountChange }) => {
                   <Box sx={{ py: 6, textAlign: 'center' }}>
                     <Typography color="text.secondary">No delivered gifts</Typography>
                   </Box>
-                ) : grouped.map(([groupName, items]) => (
-                  <Box key={groupName} sx={{ borderRadius: '12px', border: '1px solid rgba(61,74,62,0.1)', overflow: 'hidden' }}>
-                    {/* Group header */}
-                    <Box sx={{
-                      px: 2, py: 1.25,
-                      backgroundColor: 'rgba(90,138,122,0.08)',
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    }}>
-                      <Typography sx={{ fontWeight: 600, fontSize: '14px', color: '#2D2D2D' }}>{groupName}</Typography>
-                      <Chip label={`${items.length}`} size="small" sx={{ height: 22, fontSize: '12px', fontWeight: 600, backgroundColor: 'rgba(61,74,62,0.08)' }} />
-                    </Box>
-                    {/* Transaction rows */}
-                    {items.map((c, idx) => (
-                      <Box key={c.id} onClick={() => setViewItem(c)} sx={{
-                        px: 2, py: 1.25,
-                        display: 'flex', alignItems: 'center', gap: 1.5,
-                        cursor: 'pointer',
-                        borderTop: idx > 0 ? '1px solid rgba(61,74,62,0.06)' : 'none',
+                ) : grouped.map(([groupName, items]) => {
+                  const isExpanded = !!expandedGroups[groupName];
+                  const gPage = groupPages[groupName] || 0;
+                  const pagedItems = items.slice(gPage * 10, gPage * 10 + 10);
+                  return (
+                    <Box key={groupName} sx={{ borderRadius: '12px', border: '1px solid rgba(61,74,62,0.1)', overflow: 'hidden' }}>
+                      {/* Collapsible header */}
+                      <Box onClick={() => toggleGroup(groupName)} sx={{
+                        px: 2, py: 1.25, cursor: 'pointer', userSelect: 'none',
+                        backgroundColor: 'rgba(212,149,106,0.08)',
+                        display: 'flex', alignItems: 'center', gap: 1,
                         transition: 'background-color 0.15s ease',
-                        '&:hover': { backgroundColor: 'rgba(61,74,62,0.03)' },
+                        '&:hover': { backgroundColor: 'rgba(212,149,106,0.12)' },
                       }}>
-                        <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: TIER_DOT_COLORS[c.client_tier || c.tier] || '#9CA89E', flexShrink: 0 }} />
-                        <Typography variant="body2" sx={{ fontWeight: 500, minWidth: 120 }}>{c.client_name}</Typography>
-                        <Typography variant="caption" sx={{ color: '#6B7A6D', textTransform: 'capitalize', minWidth: 60 }}>{c.client_tier || c.tier}</Typography>
-                        <Typography variant="caption" sx={{ color: '#6B7A6D', ml: 'auto', mr: 1 }}>{formatDate(c.claimed_at)}</Typography>
-                        <StatusChip status={c.status} />
+                        {isExpanded
+                          ? <KeyboardArrowDownIcon sx={{ fontSize: 20, color: '#6B7A6D' }} />
+                          : <KeyboardArrowRightIcon sx={{ fontSize: 20, color: '#6B7A6D' }} />}
+                        <Typography sx={{ fontWeight: 600, fontSize: '14px', color: '#2D2D2D', flex: 1 }}>{groupName}</Typography>
+                        <Chip label={`${items.length}`} size="small" sx={{ height: 22, fontSize: '12px', fontWeight: 600, backgroundColor: 'rgba(61,74,62,0.08)' }} />
                       </Box>
-                    ))}
-                  </Box>
-                ))}
+                      {/* Expanded rows + pagination */}
+                      {isExpanded && (
+                        <>
+                          {pagedItems.map((c, idx) => (
+                            <Box key={c.id} onClick={() => setViewItem(c)} sx={{
+                              px: 2, py: 1.25,
+                              display: 'flex', alignItems: 'center', gap: 1.5,
+                              cursor: 'pointer',
+                              borderTop: '1px solid rgba(61,74,62,0.06)',
+                              transition: 'background-color 0.15s ease',
+                              '&:hover': { backgroundColor: 'rgba(61,74,62,0.03)' },
+                            }}>
+                              <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: TIER_DOT_COLORS[c.client_tier || c.tier] || '#9CA89E', flexShrink: 0 }} />
+                              <Typography variant="body2" sx={{ fontWeight: 500, minWidth: 120 }}>{c.client_name}</Typography>
+                              <Typography variant="caption" sx={{ color: '#6B7A6D', textTransform: 'capitalize', minWidth: 60 }}>{c.client_tier || c.tier}</Typography>
+                              <Typography variant="caption" sx={{ color: '#6B7A6D', ml: 'auto', mr: 1 }}>{formatDate(c.claimed_at)}</Typography>
+                              <StatusChip status={c.status} />
+                            </Box>
+                          ))}
+                          {items.length > 10 && (
+                            <TablePagination component="div" count={items.length} page={gPage}
+                              onPageChange={(_, p) => setGroupPages(prev => ({ ...prev, [groupName]: p }))}
+                              rowsPerPage={10} rowsPerPageOptions={[10]}
+                              sx={{ borderTop: '1px solid rgba(61,74,62,0.06)', '& .MuiTablePagination-toolbar': { minHeight: 40 } }} />
+                          )}
+                        </>
+                      )}
+                    </Box>
+                  );
+                })}
               </Box>
             ) : (
               /* ── Active statuses (claimed, processing, shipped): Rich Request Cards ── */
@@ -220,11 +246,11 @@ const GiftsTab = ({ showToast, onCountChange }) => {
                   <Box key={c.id} sx={{
                     p: 2.5,
                     borderRadius: '14px',
-                    border: '1px solid rgba(90,138,122,0.15)',
-                    borderLeft: '4px solid #5A8A7A',
-                    backgroundColor: 'rgba(90,138,122,0.03)',
+                    border: '1px solid rgba(212,149,106,0.15)',
+                    borderLeft: '4px solid #D4956A',
+                    backgroundColor: 'rgba(212,149,106,0.03)',
                     transition: 'all 0.2s ease',
-                    '&:hover': { backgroundColor: 'rgba(90,138,122,0.06)', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' },
+                    '&:hover': { backgroundColor: 'rgba(212,149,106,0.06)', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' },
                   }}>
                     {/* Top row: client + date */}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>

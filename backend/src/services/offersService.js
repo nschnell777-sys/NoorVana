@@ -138,6 +138,16 @@ const claimExperience = async (offer, client) => {
     }
   }
 
+  // If experience has a points cost, deduct points
+  let redemptionResult = null;
+  if (offer.experience_points_cost && offer.experience_points_cost > 0) {
+    redemptionResult = await redeemPoints(client.id, offer.experience_points_cost, {
+      reward_name: offer.title,
+      reward_category: 'experience',
+      delivery_method: 'in_person'
+    });
+  }
+
   const claimType = offer.claim_type === 'rsvp' ? 'rsvp' : 'experience_claim';
 
   const claim = await OfferClaim.create({
@@ -149,11 +159,14 @@ const claimExperience = async (offer, client) => {
 
   await Offer.incrementSpotsClaimed(offer.id);
 
-  logger.info('Experience claimed', { offerId: offer.id, clientId: client.id, claimType });
+  logger.info('Experience claimed', { offerId: offer.id, clientId: client.id, claimType, pointsCost: offer.experience_points_cost || 0 });
 
   return {
     claim,
-    message: "You're in! Your NoorVana Advantage team will contact you with details."
+    redemption: redemptionResult,
+    message: redemptionResult
+      ? `Experience claimed for ${offer.experience_points_cost.toLocaleString()} points!`
+      : "You're in! Your NoorVana Advantage team will contact you with details."
   };
 };
 

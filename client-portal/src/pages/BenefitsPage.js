@@ -272,7 +272,7 @@ const BenefitsPage = () => {
     const cfg = statusConfig[claim.status] || statusConfig.claimed;
     return (
       <Chip
-        label="Claimed"
+        label={claim.status === 'claimed' ? 'Claimed' : claim.status === 'processing' ? 'Processing' : claim.status === 'shipped' ? 'Shipped' : claim.status === 'delivered' ? 'Delivered' : 'Claimed'}
         size="small"
         icon={cfg.icon}
         sx={{
@@ -640,9 +640,9 @@ const BenefitsPage = () => {
                         <Typography sx={{ fontSize: '13px', fontWeight: 600, color: '#7CE08A' }}>
                           Claimed
                         </Typography>
-                        {item.claim.tracking_number && (
+                        {item.claim.status !== 'claimed' && (
                           <Typography sx={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)', ml: 'auto' }}>
-                            {getClaimStatusText(item.claim)}
+                            {getClaimStatusText(item.claim)}{item.claim.tracking_number ? ` · ${item.claim.tracking_number}` : ''}
                           </Typography>
                         )}
                       </Box>

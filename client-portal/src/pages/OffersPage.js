@@ -629,6 +629,14 @@ const OffersPage = () => {
                     <Typography variant="caption" sx={{ color: '#9CA89E', fontWeight: 600, letterSpacing: '0.5px', display: 'block', mb: 0.25 }}>MIN TIER</Typography>
                     <TierBadge tier={claimDialog.min_tier} size="small" />
                   </Box>
+                  {claimDialog.experience_points_cost > 0 && (
+                    <Box sx={{ flex: 1, textAlign: 'center', borderLeft: '1px solid rgba(61, 74, 62, 0.1)', pl: 2 }}>
+                      <Typography variant="caption" sx={{ color: '#9CA89E', fontWeight: 600, letterSpacing: '0.5px', display: 'block', mb: 0.25 }}>POINTS COST</Typography>
+                      <Typography variant="body1" sx={{ fontWeight: 700, color: '#D4956A' }}>
+                        {Number(claimDialog.experience_points_cost).toLocaleString()}
+                      </Typography>
+                    </Box>
+                  )}
                   <Box sx={{ flex: 1, textAlign: 'center', borderLeft: '1px solid rgba(61, 74, 62, 0.1)', pl: 2 }}>
                     <Typography variant="caption" sx={{ color: '#9CA89E', fontWeight: 600, letterSpacing: '0.5px', display: 'block', mb: 0.25 }}>ENDS</Typography>
                     <Typography variant="body2" sx={{ fontWeight: 600, color: '#2D2D2D' }}>
@@ -637,6 +645,11 @@ const OffersPage = () => {
                   </Box>
                 </Box>
 
+                {claimDialog.experience_points_cost > 0 && (
+                  <Typography variant="caption" sx={{ color: '#C1592E', display: 'block', textAlign: 'center', mb: 1.5, fontWeight: 600 }}>
+                    This will deduct {Number(claimDialog.experience_points_cost).toLocaleString()} points from your redeemable balance
+                  </Typography>
+                )}
                 <Typography variant="caption" sx={{ color: '#9CA89E', display: 'block', textAlign: 'center', mb: 2.5 }}>
                   The NoorVana Advantage team will contact you with details.
                 </Typography>
@@ -661,7 +674,7 @@ const OffersPage = () => {
                       '&:hover': { background: 'linear-gradient(135deg, #2A332B, #4A7A6A)' }
                     }}
                   >
-                    {claimLoading ? <CircularProgress size={22} sx={{ color: '#FFF' }} /> : 'RSVP'}
+                    {claimLoading ? <CircularProgress size={22} sx={{ color: '#FFF' }} /> : (claimDialog.experience_points_cost > 0 ? `Claim for ${Number(claimDialog.experience_points_cost).toLocaleString()} pts` : 'RSVP')}
                   </Button>
                 </Box>
               </Box>

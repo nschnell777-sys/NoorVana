@@ -24,7 +24,7 @@ export const formatPoints = (num) => {
  * @returns {string}
  */
 export const formatCurrency = (amount) => {
-  return `$${parseFloat(amount || 0).toFixed(2)}`;
+  return `$${parseFloat(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
 /**

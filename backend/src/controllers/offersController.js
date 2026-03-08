@@ -44,6 +44,7 @@ const adminCreateOffer = async (req, res, next) => {
       reward_id, original_points, deal_points, deal_bonus_value, deal_quantity_limit,
       deal_discount_percentage,
       claim_type, spots_available, prize_details, event_date,
+      experience_points_cost,
       sweepstakes_entries_allowed, sweepstakes_winners_count, sweepstakes_draw_date
     } = req.body;
 
@@ -82,7 +83,8 @@ const adminCreateOffer = async (req, res, next) => {
       sweepstakes_entries_allowed: sweepstakes_entries_allowed || 1,
       sweepstakes_winners_count: sweepstakes_winners_count || 1,
       sweepstakes_draw_date: sweepstakes_draw_date || null,
-      event_date: event_date || null
+      event_date: event_date || null,
+      experience_points_cost: experience_points_cost || null
     });
 
     res.status(201).json({ offer });
