@@ -73,6 +73,33 @@ const STATE_NAMES = {
 
 const fmtCurrency = (v) => `$${(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+/** Compute date_from and date_to for a clicked trend bar */
+const getDateRangeFromTrendItem = (item) => {
+  // For aggregated buckets with _rangeEnd, compute the full range
+  if (item._rangeEnd) {
+    const startRange = getDateRangeFromTrendItem({ week: item.week, month: item.month });
+    // _rangeEnd could be a week date or month string
+    const isMonth = item._rangeEnd.length === 7;
+    const endRange = getDateRangeFromTrendItem(isMonth ? { month: item._rangeEnd } : { week: item._rangeEnd });
+    if (startRange && endRange) return { date_from: startRange.date_from, date_to: endRange.date_to };
+  }
+  if (item.week) {
+    const from = item.week;
+    const d = new Date(item.week + 'T00:00:00');
+    d.setDate(d.getDate() + 6);
+    const to = d.toISOString().slice(0, 10);
+    return { date_from: from, date_to: to };
+  }
+  if (item.month) {
+    const [y, mo] = item.month.split('-');
+    const from = `${y}-${mo}-01`;
+    const last = new Date(parseInt(y), parseInt(mo), 0);
+    const to = last.toISOString().slice(0, 10);
+    return { date_from: from, date_to: to };
+  }
+  return null;
+};
+
 const DashboardPage = () => {
   const navigate = useNavigate();
   const [dashboard, setDashboard] = useState(null);
@@ -170,26 +197,22 @@ const DashboardPage = () => {
       setLifetimeRevPerClientPerTier(data.lifetime_rev_per_client_per_tier || {});
       setRevPerClientPerState(data.revenue_per_client_per_state || []);
       const rows = data.months || data.weeks || [];
-      const curMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
-      setMonthlyData(rows
-        .filter(m => !m.month || m.month !== curMonth)
-        .map(m => {
-          const points = parseInt(m.points_accrued, 10) || 0;
-          // Format period label: weeks as "Mon D" (e.g. "Nov 25"), months as-is
-          let period = m.month || m.week;
-          if (m.week) {
-            const d = new Date(m.week + 'T00:00:00');
-            period = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          }
-          return {
-            ...m,
-            period,
-            revenue: parseFloat(m.revenue) || 0,
-            points_accrued: points,
-            redemption_value: (points / 1000) * 5,
-            actual_redemptions: parseFloat(m.redemptions_value) || 0
-          };
-        }));
+      setMonthlyData(rows.map(m => {
+        const points = parseInt(m.points_accrued, 10) || 0;
+        let period = m.month || m.week;
+        if (m.week) {
+          const d = new Date(m.week + 'T00:00:00');
+          period = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+        return {
+          ...m,
+          period,
+          revenue: parseFloat(m.revenue) || 0,
+          points_accrued: points,
+          redemption_value: (points / 1000) * 5,
+          actual_redemptions: parseFloat(m.redemptions_value) || 0
+        };
+      }));
     } catch (err) {
       console.error('Failed to load stats:', err);
     } finally {
@@ -224,10 +247,8 @@ const DashboardPage = () => {
         const d = res.data;
         const rows = d.weeks || d.months || [];
 
-        // Filter out current month and format period labels
-        const curMonth = new Date().toISOString().slice(0, 7);
+        // Format period labels
         const formatted = rows
-          .filter(m => !m.month || m.month !== curMonth)
           .map(m => {
             let label;
             if (m.week) {
@@ -252,6 +273,9 @@ const DashboardPage = () => {
             aggregated.push({
               period: bucketLabel,
               revenue: bucket.reduce((s, r) => s + r.revenue, 0),
+              week: bucket[0].week,
+              month: bucket[0].month,
+              _rangeEnd: bucket[bucket.length - 1].month || bucket[bucket.length - 1].week,
             });
           }
           setTrendRawData(aggregated);
@@ -271,9 +295,25 @@ const DashboardPage = () => {
     if (newPeriod !== null) setSelectedPeriod(newPeriod);
   };
 
+  // Drill-down click handlers
+  const handleTierClick = (data) => {
+    const tier = data.tier || data.name?.toLowerCase();
+    if (tier) navigate(`/clients?tier=${tier}&status=active`);
+  };
+
+  const handleStateClick = (data) => {
+    const stateCode = data.state || Object.keys(STATE_NAMES).find(k => STATE_NAMES[k] === data.name) || data.name;
+    if (stateCode) navigate(`/markets?state=${stateCode}`);
+  };
+
+  const handleRevenueTrendClick = (data) => {
+    const range = getDateRangeFromTrendItem(data);
+    if (range) navigate(`/transactions?date_from=${range.date_from}&date_to=${range.date_to}`);
+  };
+
   if (loading) return <LoadingSpinner />;
 
-  // Compute period totals from chart data
+  // Compute period totals from monthly data
   const totals = monthlyData.reduce((acc, m) => ({
     revenue: acc.revenue + m.revenue,
     points: acc.points + m.points_accrued,
@@ -503,7 +543,7 @@ const DashboardPage = () => {
                       formatter={(value, name) => [fmtCurrency(value), name]}
                     />
                     <Legend iconType="circle" iconSize={10} wrapperStyle={{ fontSize: '13px', color: '#5C6B5E' }} />
-                    {trendChartType === 'bar' && <Bar dataKey="revenue" fill="url(#dashBarGrad)" name="Revenue" radius={[3, 3, 0, 0]} barSize={trendChartData.length > 15 ? undefined : Math.min(80, Math.floor(500 / (trendChartData.length || 1)))} />}
+                    {trendChartType === 'bar' && <Bar dataKey="revenue" fill="#3D4A3E" name="Revenue" radius={[4, 4, 0, 0]} maxBarSize={24} onClick={handleRevenueTrendClick} cursor="pointer" />}
                     {trendChartType === 'bar' && <Line type="monotone" dataKey="revenueTrend" stroke={CHART_COLORS.primary} strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 2, fill: '#fff' }} name="Moving Avg" />}
                     {trendChartType === 'area' && <Area type="monotone" dataKey="revenue" stroke={CHART_COLORS.tertiary} strokeWidth={2} fill="url(#dashAreaGrad)" dot={false} activeDot={{ r: 5, strokeWidth: 2, fill: '#fff', stroke: CHART_COLORS.tertiary }} name="Revenue" />}
 
@@ -563,7 +603,7 @@ const DashboardPage = () => {
               {tierClientData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={260}>
                   <PieChart>
-                    <Pie data={tierClientData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={3} cornerRadius={6} stroke="none">
+                    <Pie data={tierClientData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={3} cornerRadius={6} stroke="none" onClick={handleTierClick} cursor="pointer">
                       {tierClientData.map((entry, index) => (
                         <Cell key={index} fill={entry.color} />
                       ))}
@@ -608,7 +648,7 @@ const DashboardPage = () => {
                       const pct = totalRev > 0 ? ((value / totalRev) * 100).toFixed(1) : '0.0';
                       return [`${fmtCurrency(value)} (${pct}%)`, 'Revenue'];
                     }} />
-                    <Bar dataKey="revenue" radius={[0, 4, 4, 0]} barSize={20}>
+                    <Bar dataKey="revenue" radius={[0, 4, 4, 0]} maxBarSize={24} onClick={handleTierClick} cursor="pointer">
                       {tierRevenueData.map((entry, index) => (
                         <Cell key={index} fill={entry.color} />
                       ))}
@@ -651,7 +691,7 @@ const DashboardPage = () => {
                     <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#5C6B5E' }} axisLine={{ stroke: 'rgba(61,74,62,0.12)' }} tickLine={false} />
                     <YAxis tick={{ fontSize: 11, fill: '#5C6B5E' }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`} />
                     <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value) => [fmtCurrency(value), 'Revenue / Client']} />
-                    <Bar dataKey="revenue" radius={[6, 6, 0, 0]}>
+                    <Bar dataKey="revenue" radius={[4, 4, 0, 0]} maxBarSize={24} onClick={handleTierClick} cursor="pointer">
                       {tierRevPerClientData.map((entry, index) => (
                         <Cell key={index} fill={`url(#tierRevGrad${index})`} />
                       ))}
@@ -685,7 +725,7 @@ const DashboardPage = () => {
               {stateClientData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={260}>
                   <PieChart>
-                    <Pie data={stateClientData} dataKey="count" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={3} cornerRadius={6} stroke="none">
+                    <Pie data={stateClientData} dataKey="count" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={3} cornerRadius={6} stroke="none" onClick={handleStateClick} cursor="pointer">
                       {stateClientData.map((entry, index) => (
                         <Cell key={index} fill={entry.color} />
                       ))}
@@ -730,7 +770,7 @@ const DashboardPage = () => {
                       const pct = totalRev > 0 ? ((value / totalRev) * 100).toFixed(1) : '0.0';
                       return [`${fmtCurrency(value)} (${pct}%)`, 'Revenue'];
                     }} />
-                    <Bar dataKey="revenue" radius={[0, 4, 4, 0]} barSize={20}>
+                    <Bar dataKey="revenue" radius={[0, 4, 4, 0]} maxBarSize={24} onClick={handleStateClick} cursor="pointer">
                       {stateRevenueData.map((entry, index) => (
                         <Cell key={index} fill={entry.color} />
                       ))}
@@ -773,7 +813,7 @@ const DashboardPage = () => {
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#5C6B5E' }} axisLine={{ stroke: 'rgba(61,74,62,0.12)' }} tickLine={false} />
                     <YAxis tick={{ fontSize: 11, fill: '#5C6B5E' }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`} />
                     <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value) => [fmtCurrency(value), 'Revenue / Client']} />
-                    <Bar dataKey="revenue_per_client" radius={[6, 6, 0, 0]}>
+                    <Bar dataKey="revenue_per_client" radius={[4, 4, 0, 0]} maxBarSize={24} onClick={handleStateClick} cursor="pointer">
                       {stateRevPerClientData.map((entry, index) => (
                         <Cell key={index} fill={`url(#stateRevGrad${index})`} />
                       ))}

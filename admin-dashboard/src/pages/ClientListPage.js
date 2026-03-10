@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box, Typography, TextField, Select, MenuItem, FormControl, InputLabel,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
-  TablePagination, InputAdornment, TableSortLabel, Chip, Grid
+  TablePagination, InputAdornment, TableSortLabel, Chip, Grid,
+  ToggleButton, ToggleButtonGroup
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import { getClients } from '../services/api';
@@ -12,20 +13,52 @@ import TierBadge from '../components/TierBadge';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { frostedCardSx } from '../theme';
 
+const TIME_PERIODS = [
+  { label: '1M', months: 1 },
+  { label: '3M', months: 3 },
+  { label: '6M', months: 6 },
+  { label: 'YTD', months: 0 },
+  { label: '1Y', months: 12 },
+  { label: '2Y', months: 24 },
+  { label: '5Y', months: 60 },
+  { label: 'All', months: 999 }
+];
+
+const computeDateRange = (periodLabel) => {
+  if (periodLabel === 'All') return { from: '', to: '' };
+  const now = new Date();
+  let from;
+  if (periodLabel === 'YTD') {
+    from = new Date(now.getFullYear(), 0, 1);
+  } else {
+    const period = TIME_PERIODS.find(p => p.label === periodLabel);
+    from = new Date(now);
+    from.setMonth(from.getMonth() - period.months);
+  }
+  return {
+    from: from.toISOString().slice(0, 10),
+    to: now.toISOString().slice(0, 10)
+  };
+};
+
 const ClientListPage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [clients, setClients] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [search, setSearch] = useState('');
-  const [tierFilter, setTierFilter] = useState('');
-  const [packageFilter, setPackageFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [tierFilter, setTierFilter] = useState(searchParams.get('tier') || '');
+  const [packageFilter, setPackageFilter] = useState(searchParams.get('care_package') || '');
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'all');
   const [loading, setLoading] = useState(true);
-  const [summary, setSummary] = useState({ total_clients: 0, avg_cltv: 0, avg_duration_days: 0 });
+  const [summary, setSummary] = useState({ total_clients: 0, avg_cltv: 0, avg_duration_days: 0, total_revenue: 0 });
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
+  const [selectedPeriod, setSelectedPeriod] = useState('All');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
@@ -38,6 +71,8 @@ const ClientListPage = () => {
         ...(search && { search }),
         ...(tierFilter && { tier: tierFilter }),
         ...(packageFilter && { care_package: packageFilter }),
+        ...(dateFrom && { date_from: dateFrom }),
+        ...(dateTo && { date_to: dateTo }),
         status: statusFilter
       };
       const { data } = await getClients(params);
@@ -49,7 +84,7 @@ const ClientListPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, tierFilter, packageFilter, statusFilter, sortBy, sortOrder]);
+  }, [page, rowsPerPage, search, tierFilter, packageFilter, statusFilter, sortBy, sortOrder, dateFrom, dateTo]);
 
   useEffect(() => {
     fetchClients();
@@ -75,6 +110,15 @@ const ClientListPage = () => {
     setPage(0);
   };
 
+  const handlePeriodChange = (_, newPeriod) => {
+    if (newPeriod === null) return;
+    setSelectedPeriod(newPeriod);
+    const range = computeDateRange(newPeriod);
+    setDateFrom(range.from);
+    setDateTo(range.to);
+    setPage(0);
+  };
+
   const columns = [
     { id: 'name', label: 'Name', align: 'left', sortable: false },
     { id: 'current_tier', label: 'Tier', align: 'left', sortable: false },
@@ -87,15 +131,36 @@ const ClientListPage = () => {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>Clients</Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+        <Typography variant="h4" sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 700 }}>Clients</Typography>
+        <ToggleButtonGroup
+          value={selectedPeriod}
+          exclusive
+          onChange={handlePeriodChange}
+          size="small"
+          sx={{
+            '& .MuiToggleButton-root': {
+              px: 1.5, py: 0.3, fontSize: '12px', fontWeight: 600,
+              border: '1px solid rgba(61,74,62,0.15)', color: '#5C6B5E', textTransform: 'none',
+              '&.Mui-selected': { backgroundColor: '#3D4A3E', color: '#fff', '&:hover': { backgroundColor: '#2A332B' } },
+              '&:hover': { backgroundColor: 'rgba(61,74,62,0.06)' }
+            }
+          }}
+        >
+          {TIME_PERIODS.map((p) => (
+            <ToggleButton key={p.label} value={p.label}>{p.label}</ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+      </Box>
 
       <Grid container spacing={3} sx={{ mb: 3 }}>
         {[
           { label: 'Total Clients', value: String(summary.total_clients), sub: `${summary.active_clients || 0} currently active` },
-          { label: 'Avg CLTV', value: formatCurrency(summary.avg_cltv), sub: 'lifetime value per client' },
-          { label: 'Avg Duration', value: `${summary.avg_duration_days} days`, sub: `across ${summary.total_clients} clients` }
+          { label: 'Avg Duration', value: `${summary.avg_duration_days} days`, sub: `across ${summary.total_clients} clients` },
+          { label: 'Total Revenue', value: formatCurrency(summary.total_revenue), sub: 'total billed amount' },
+          { label: 'Avg CLTV', value: formatCurrency(summary.avg_cltv), sub: 'lifetime value per client' }
         ].map((stat) => (
-          <Grid item xs={12} sm={6} md={4} key={stat.label}>
+          <Grid item xs={12} sm={6} md={3} key={stat.label}>
             <Box sx={{ ...frostedCardSx, p: 3, textAlign: 'center', height: 130, display: 'flex', flexDirection: 'column', justifyContent: 'center', '&:hover': { transform: 'none' } }}>
               <Typography variant="subtitle2" sx={{ color: '#5C6B5E', mb: 0.5 }}>{stat.label}</Typography>
               <Typography variant="h4" sx={{ fontWeight: 700, fontFamily: '"Outfit", sans-serif', mb: 0.5 }}>{stat.value}</Typography>

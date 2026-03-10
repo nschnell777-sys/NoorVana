@@ -5,7 +5,7 @@ import {
   TableSortLabel, CircularProgress, Chip, FormControl, InputLabel,
   Select, MenuItem
 } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   PieChart, Pie, Cell, AreaChart, Area, BarChart, Bar, ComposedChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
@@ -88,6 +88,25 @@ const LEVEL_LABELS = {
 const fmtCurrency = (v) => `$${(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtNumber = (v) => (v || 0).toLocaleString();
 
+/** Compute date_from and date_to for a clicked trend bar */
+const getDateRangeFromTrendItem = (item) => {
+  if (item.week) {
+    const from = item.week;
+    const d = new Date(item.week + 'T00:00:00');
+    d.setDate(d.getDate() + 6);
+    const to = d.toISOString().slice(0, 10);
+    return { date_from: from, date_to: to };
+  }
+  if (item.month) {
+    const [y, mo] = item.month.split('-');
+    const from = `${y}-${mo}-01`;
+    const last = new Date(parseInt(y), parseInt(mo), 0);
+    const to = last.toISOString().slice(0, 10);
+    return { date_from: from, date_to: to };
+  }
+  return null;
+};
+
 const selectSx = {
   minWidth: 180,
   '& .MuiOutlinedInput-root': {
@@ -104,6 +123,7 @@ const selectSx = {
 
 const MarketsPage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [chartLoading, setChartLoading] = useState(false);
@@ -138,7 +158,7 @@ const MarketsPage = () => {
 
   // Dropdown selections
   const [selectedCountry, setSelectedCountry] = useState('US');
-  const [selectedState, setSelectedState] = useState('');
+  const [selectedState, setSelectedState] = useState(searchParams.get('state') || '');
   const [selectedMarket, setSelectedMarket] = useState('');
   const [selectedCity, setSelectedCity] = useState('');
 
@@ -304,6 +324,8 @@ const MarketsPage = () => {
             aggregated.push({
               period: bucketLabel,
               revenue: bucket.reduce((s, r) => s + r.revenue, 0),
+              week: bucket[0].week,
+              month: bucket[0].month,
             });
           }
           setTrendRawData(aggregated);
@@ -321,6 +343,23 @@ const MarketsPage = () => {
 
   const handlePeriodChange = (_, newPeriod) => {
     if (newPeriod !== null) setSelectedPeriod(newPeriod);
+  };
+
+  // Drill-down click handlers
+  const handleTierClick = (data) => {
+    const tier = data.name?.toLowerCase();
+    if (tier) navigate(`/clients?tier=${tier}&status=active`);
+  };
+
+  const handlePkgClick = (data) => {
+    const pkgMap = { 'Essentials': 'essentials', 'Premium': 'premium', 'White Glove': 'white_glove' };
+    const pkg = pkgMap[data.name] || data.name?.toLowerCase().replace(' ', '_');
+    if (pkg) navigate(`/clients?care_package=${pkg}&status=active`);
+  };
+
+  const handleRevenueTrendClick = (data) => {
+    const range = getDateRangeFromTrendItem(data);
+    if (range) navigate(`/transactions?date_from=${range.date_from}&date_to=${range.date_to}`);
   };
 
   const handleSort = (key) => {
@@ -577,7 +616,7 @@ const MarketsPage = () => {
                     <YAxis tick={{ fontSize: 11, fill: '#5C6B5E' }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
                     <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value, name) => [fmtCurrency(value), name]} />
                     <Legend iconType="circle" iconSize={10} wrapperStyle={{ fontSize: '13px', color: '#5C6B5E' }} />
-                    {trendChartType === 'bar' && <Bar dataKey="revenue" fill="url(#mktsBarGrad)" name="Revenue" radius={[3, 3, 0, 0]} barSize={trendChartData.length > 15 ? undefined : Math.min(80, Math.floor(500 / (trendChartData.length || 1)))} />}
+                    {trendChartType === 'bar' && <Bar dataKey="revenue" fill="#3D4A3E" name="Revenue" radius={[4, 4, 0, 0]} maxBarSize={24} onClick={handleRevenueTrendClick} cursor="pointer" />}
                     {trendChartType === 'bar' && <Line type="monotone" dataKey="revenueTrend" stroke={CHART_COLORS.primary} strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 2, fill: '#fff' }} name="Moving Avg" />}
                     {trendChartType === 'area' && <Area type="monotone" dataKey="revenue" stroke={CHART_COLORS.tertiary} strokeWidth={2} fill="url(#mktsAreaGrad)" dot={false} activeDot={{ r: 5, strokeWidth: 2, fill: '#fff', stroke: CHART_COLORS.tertiary }} name="Revenue" />}
 
@@ -607,7 +646,7 @@ const MarketsPage = () => {
               {tierData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={260}>
                   <PieChart>
-                    <Pie data={tierData} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={40} outerRadius={75} paddingAngle={3} cornerRadius={5} stroke="none">
+                    <Pie data={tierData} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={40} outerRadius={75} paddingAngle={3} cornerRadius={5} stroke="none" onClick={handleTierClick} cursor="pointer">
                       {tierData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                     </Pie>
                     <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value, name) => {
@@ -654,7 +693,7 @@ const MarketsPage = () => {
                     <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#5C6B5E' }} axisLine={{ stroke: 'rgba(61,74,62,0.12)' }} tickLine={false} />
                     <YAxis tick={{ fontSize: 11, fill: '#5C6B5E' }} axisLine={false} tickLine={false} allowDecimals={false} domain={[0, (dataMax) => Math.ceil(dataMax * 2)]} />
                     <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value) => [`${value} clients`, 'Count']} />
-                    <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={40}>
+                    <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={24} onClick={handlePkgClick} cursor="pointer">
                       {pkgData.map((entry, i) => <Cell key={i} fill={`url(#pkgGrad${i})`} />)}
                     </Bar>
                   </BarChart>

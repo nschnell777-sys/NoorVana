@@ -58,6 +58,36 @@ const CLAIM_STATUS_COLORS = {
 
 const TIERS = ['bronze', 'silver', 'gold', 'platinum', 'diamond'];
 
+const TIME_PERIODS = [
+  { label: '1M', months: 1 },
+  { label: '3M', months: 3 },
+  { label: '6M', months: 6 },
+  { label: 'YTD', months: 0 },
+  { label: '1Y', months: 12 },
+  { label: '2Y', months: 24 },
+  { label: '5Y', months: 60 },
+  { label: 'All', months: 999 }
+];
+
+const getDateCutoff = (periodLabel) => {
+  if (periodLabel === 'All') return null;
+  const now = new Date();
+  if (periodLabel === 'YTD') return new Date(now.getFullYear(), 0, 1);
+  const period = TIME_PERIODS.find(p => p.label === periodLabel);
+  const from = new Date(now);
+  from.setMonth(from.getMonth() - period.months);
+  return from;
+};
+
+const periodToggleSx = {
+  '& .MuiToggleButton-root': {
+    px: 1.5, py: 0.3, fontSize: '12px', fontWeight: 600,
+    border: '1px solid rgba(61,74,62,0.15)', color: '#5C6B5E', textTransform: 'none',
+    '&.Mui-selected': { backgroundColor: '#3D4A3E', color: '#fff', '&:hover': { backgroundColor: '#2A332B' } },
+    '&:hover': { backgroundColor: 'rgba(61,74,62,0.06)' }
+  }
+};
+
 const INITIAL_FORM = {
   type: 'deal', title: '', description: '', preview_text: '', min_tier: 'gold',
   start_date: '', end_date: '', status: 'draft',
@@ -113,7 +143,8 @@ const OffersPage = () => {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState({ open: false, message: '', severity: 'success' });
 
-  // Filters
+  // Period & Filters
+  const [selectedPeriod, setSelectedPeriod] = useState('All');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -202,14 +233,20 @@ const OffersPage = () => {
   const experienceOffers = useMemo(() => filteredOffers.filter(o => o.type === 'experience'), [filteredOffers]);
   const giveawayOffers = useMemo(() => filteredOffers.filter(o => o.type === 'giveaway'), [filteredOffers]);
 
-  const stats = useMemo(() => ({
-    total: offers.length,
-    active: offers.filter(o => o.status === 'active').length,
-    activeDeals: offers.filter(o => o.type === 'deal' && o.status === 'active').length,
-    activeExperiences: offers.filter(o => o.type === 'experience' && o.status === 'active').length,
-    activeGiveaways: offers.filter(o => o.type === 'giveaway' && o.status === 'active').length,
-    drawnGiveaways: offers.filter(o => o.type === 'giveaway' && o.sweepstakes_drawn).length,
-  }), [offers]);
+  const stats = useMemo(() => {
+    const cutoff = getDateCutoff(selectedPeriod);
+    const periodOffers = cutoff
+      ? offers.filter(o => new Date(o.created_at) >= cutoff)
+      : offers;
+    return {
+      total: periodOffers.length,
+      active: periodOffers.filter(o => o.status === 'active').length,
+      activeDeals: periodOffers.filter(o => o.type === 'deal' && o.status === 'active').length,
+      activeExperiences: periodOffers.filter(o => o.type === 'experience' && o.status === 'active').length,
+      activeGiveaways: periodOffers.filter(o => o.type === 'giveaway' && o.status === 'active').length,
+      drawnGiveaways: periodOffers.filter(o => o.type === 'giveaway' && o.sweepstakes_drawn).length,
+    };
+  }, [offers, selectedPeriod]);
 
   const hasActiveFilters = search || typeFilter || (statusFilter && statusFilter !== 'active');
 
@@ -846,16 +883,29 @@ const OffersPage = () => {
   return (
     <Box>
       {/* Page Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3, flexWrap: 'wrap', gap: 1 }}>
         <Box>
           <Typography variant="h4" gutterBottom>Offers & Promotions</Typography>
           <Typography variant="body2" sx={{ color: '#5C6B5E' }}>Manage deals, experiences, and sweepstakes</Typography>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateForm}>Create Offer</Button>
+        <ToggleButtonGroup
+          value={selectedPeriod}
+          exclusive
+          onChange={(_, v) => { if (v !== null) setSelectedPeriod(v); }}
+          size="small"
+          sx={periodToggleSx}
+        >
+          {TIME_PERIODS.map((p) => (
+            <ToggleButton key={p.label} value={p.label}>{p.label}</ToggleButton>
+          ))}
+        </ToggleButtonGroup>
       </Box>
 
-      {/* Stat Cards */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
+      {/* ── Summary Stats ── */}
+      <Typography variant="subtitle2" sx={{ color: '#5C6B5E', mb: 1.5, fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', fontSize: '12px' }}>
+        Offers Overview
+      </Typography>
+      <Grid container spacing={3} sx={{ mb: 4 }}>
         {[
           { label: 'Total Offers', value: stats.total, sub: `${stats.active} active` },
           { label: 'Active Deals', value: stats.activeDeals, sub: 'deal promotions running' },
@@ -871,6 +921,14 @@ const OffersPage = () => {
           </Grid>
         ))}
       </Grid>
+
+      {/* ── Manage Offers ── */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+        <Typography variant="subtitle2" sx={{ color: '#5C6B5E', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', fontSize: '12px' }}>
+          Manage Offers
+        </Typography>
+        <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={openCreateForm}>Create Offer</Button>
+      </Box>
 
       {/* Filter Bar */}
       <Box sx={{ ...frostedCardSx, p: 2.5, mb: 3, borderTop: '3px solid #D4956A', '&:hover': { transform: 'none' } }}>

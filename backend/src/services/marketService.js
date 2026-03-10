@@ -75,6 +75,7 @@ const getMarketAnalytics = async ({ months = 6, state, market, city, granularity
     .join('clients as c', 'pt.client_id', 'c.id')
     .where('pt.transaction_type', 'earn')
     .andWhere('pt.created_at', '>=', periodStart)
+    .andWhere('c.is_active', true)
     .select(db.raw('SUM(pt.invoice_amount) as total_revenue'));
   applyGeoFilters(revenueQuery, filters, 'c.');
   const revenueRow = await revenueQuery.first();
@@ -87,7 +88,7 @@ const getMarketAnalytics = async ({ months = 6, state, market, city, granularity
     total_clients: totalClients,
     active_clients: activeClients,
     total_revenue: totalRevenue,
-    avg_revenue_per_client: totalClients > 0 ? totalRevenue / totalClients : 0,
+    avg_revenue_per_client: activeClients > 0 ? totalRevenue / activeClients : 0,
     avg_tenure_days: Math.round(parseFloat(summaryRow?.avg_days) || 0),
     retention_pct: totalClients > 0 ? Math.round((activeClients / totalClients) * 100) : 0
   };
@@ -139,6 +140,7 @@ const getMarketAnalytics = async ({ months = 6, state, market, city, granularity
       .sum('pt.invoice_amount as revenue')
       .where('pt.transaction_type', 'earn')
       .andWhere('pt.created_at', '>=', periodStart)
+      .andWhere('c.is_active', true)
       .groupBy(`c.${groupByField}`);
     applyGeoFilters(revQuery, filters, 'c.');
     const revRows = await revQuery;
@@ -193,7 +195,7 @@ const getMarketAnalytics = async ({ months = 6, state, market, city, granularity
         clients: rowClients,
         active_clients: rowActive,
         revenue: rowRevenue,
-        avg_revenue_per_client: rowClients > 0 ? rowRevenue / rowClients : 0,
+        avg_revenue_per_client: rowActive > 0 ? rowRevenue / rowActive : 0,
         avg_tenure_days: Math.round(parseFloat(row.avg_days) || 0),
         retention_pct: rowClients > 0 ? Math.round((rowActive / rowClients) * 100) : 0,
         bronze_clients: tiers.bronze,
@@ -237,6 +239,7 @@ const getMarketAnalytics = async ({ months = 6, state, market, city, granularity
 
   const trendsQuery = db('points_transactions as pt')
     .join('clients as c', 'pt.client_id', 'c.id')
+    .where('c.is_active', true)
     .select(
       db.raw(isSqlite
         ? `${sqliteGroupExpr} as ${periodCol}`

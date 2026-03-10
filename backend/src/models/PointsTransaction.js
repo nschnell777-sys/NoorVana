@@ -75,53 +75,59 @@ const PointsTransaction = {
 
     let sqliteGroupExpr, sqliteStartExpr, pgGroupExpr, pgStartExpr, periodCol;
 
+    const pt = 'points_transactions';
+
     if (byDay) {
       periodCol = 'day';
-      sqliteGroupExpr = "date(created_at)";
+      sqliteGroupExpr = `date(${pt}.created_at)`;
       sqliteStartExpr = days
         ? `date('now', '-${days} days')`
         : `date('now', '-${months} months')`;
-      pgGroupExpr = "created_at::date";
+      pgGroupExpr = `${pt}.created_at::date`;
       pgStartExpr = days
         ? `NOW() - INTERVAL '${days} days'`
         : `NOW() - INTERVAL '${months} months'`;
     } else if (byWeek) {
       periodCol = 'week';
-      sqliteGroupExpr = "date(created_at, 'weekday 0', '-6 days')";
+      sqliteGroupExpr = `date(${pt}.created_at, 'weekday 0', '-6 days')`;
       sqliteStartExpr = `date('now', 'weekday 0', '-6 days', '-${months} months')`;
-      pgGroupExpr = "date_trunc('week', created_at)::date";
+      pgGroupExpr = `date_trunc('week', ${pt}.created_at)::date`;
       pgStartExpr = `date_trunc('week', NOW() - INTERVAL '${months} months')`;
     } else {
       periodCol = 'month';
-      sqliteGroupExpr = "strftime('%Y-%m', created_at)";
+      sqliteGroupExpr = `strftime('%Y-%m', ${pt}.created_at)`;
       sqliteStartExpr = `date('now', 'start of month', '-${months} months')`;
-      pgGroupExpr = "TO_CHAR(created_at, 'YYYY-MM')";
+      pgGroupExpr = `TO_CHAR(${pt}.created_at, 'YYYY-MM')`;
       pgStartExpr = `date_trunc('month', NOW() - INTERVAL '${months} months')`;
     }
 
     if (isSqlite) {
       return db('points_transactions')
+        .join('clients', 'points_transactions.client_id', 'clients.id')
+        .where('clients.is_active', true)
         .select(
           db.raw(`${sqliteGroupExpr} as ${periodCol}`),
-          db.raw("SUM(CASE WHEN transaction_type = 'earn' THEN invoice_amount ELSE 0 END) as revenue"),
-          db.raw("SUM(CASE WHEN transaction_type = 'earn' THEN lifetime_points_change ELSE 0 END) as points_accrued"),
-          db.raw("COUNT(CASE WHEN transaction_type = 'redeem' THEN 1 END) as redemptions_count"),
-          db.raw("SUM(CASE WHEN transaction_type = 'redeem' THEN ABS(redeemable_points_change) ELSE 0 END) / 1000.0 * 5.0 as redemptions_value")
+          db.raw(`SUM(CASE WHEN ${pt}.transaction_type = 'earn' THEN ${pt}.invoice_amount ELSE 0 END) as revenue`),
+          db.raw(`SUM(CASE WHEN ${pt}.transaction_type = 'earn' THEN ${pt}.lifetime_points_change ELSE 0 END) as points_accrued`),
+          db.raw(`COUNT(CASE WHEN ${pt}.transaction_type = 'redeem' THEN 1 END) as redemptions_count`),
+          db.raw(`SUM(CASE WHEN ${pt}.transaction_type = 'redeem' THEN ABS(${pt}.redeemable_points_change) ELSE 0 END) / 1000.0 * 5.0 as redemptions_value`)
         )
-        .where('created_at', '>=', db.raw(sqliteStartExpr))
+        .where(`${pt}.created_at`, '>=', db.raw(sqliteStartExpr))
         .groupByRaw(sqliteGroupExpr)
         .orderByRaw(`${sqliteGroupExpr} ASC`);
     }
 
     return db('points_transactions')
+      .join('clients', 'points_transactions.client_id', 'clients.id')
+      .where('clients.is_active', true)
       .select(
         db.raw(`${pgGroupExpr} as ${periodCol}`),
-        db.raw("SUM(CASE WHEN transaction_type = 'earn' THEN invoice_amount ELSE 0 END) as revenue"),
-        db.raw("SUM(CASE WHEN transaction_type = 'earn' THEN lifetime_points_change ELSE 0 END) as points_accrued"),
-        db.raw("COUNT(CASE WHEN transaction_type = 'redeem' THEN 1 END) as redemptions_count"),
-        db.raw("SUM(CASE WHEN transaction_type = 'redeem' THEN ABS(redeemable_points_change) ELSE 0 END) / 1000.0 * 5.0 as redemptions_value")
+        db.raw(`SUM(CASE WHEN ${pt}.transaction_type = 'earn' THEN ${pt}.invoice_amount ELSE 0 END) as revenue`),
+        db.raw(`SUM(CASE WHEN ${pt}.transaction_type = 'earn' THEN ${pt}.lifetime_points_change ELSE 0 END) as points_accrued`),
+        db.raw(`COUNT(CASE WHEN ${pt}.transaction_type = 'redeem' THEN 1 END) as redemptions_count`),
+        db.raw(`SUM(CASE WHEN ${pt}.transaction_type = 'redeem' THEN ABS(${pt}.redeemable_points_change) ELSE 0 END) / 1000.0 * 5.0 as redemptions_value`)
       )
-      .where('created_at', '>=', db.raw(pgStartExpr))
+      .where(`${pt}.created_at`, '>=', db.raw(pgStartExpr))
       .groupByRaw(pgGroupExpr)
       .orderByRaw(`${pgGroupExpr} ASC`);
   }

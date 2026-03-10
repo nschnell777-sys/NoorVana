@@ -12,6 +12,7 @@ import {
   getDashboardSummary, getTierDistribution, getMonthlyStats,
   getTopClients, getRedemptionStats
 } from '../services/api';
+import { useNavigate } from 'react-router-dom';
 import TierBadge from '../components/TierBadge';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { exportToCsv } from '../utils/csv';
@@ -43,6 +44,7 @@ const SectionHeader = ({ title, action }) => (
 );
 
 const ReportsPage = () => {
+  const navigate = useNavigate();
   const [dashboard, setDashboard] = useState(null);
   const [tierData, setTierData] = useState(null);
   const [monthlyData, setMonthlyData] = useState([]);
@@ -104,6 +106,22 @@ const ReportsPage = () => {
 
   const fmtCurrency = (v) => `$${(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+  // Drill-down click handlers
+  const handleTierClick = (data) => {
+    const tier = data.tier || data.name?.toLowerCase();
+    if (tier) navigate(`/clients?tier=${tier}&status=active`);
+  };
+
+  const handleMonthClick = (data, type) => {
+    if (!data?.month) return;
+    const [y, mo] = data.month.split('-');
+    const from = `${y}-${mo}-01`;
+    const last = new Date(parseInt(y), parseInt(mo), 0);
+    const to = last.toISOString().slice(0, 10);
+    const params = `date_from=${from}&date_to=${to}`;
+    navigate(`/transactions?${params}${type ? `&type=${type}` : ''}`);
+  };
+
   return (
     <Box>
       {/* Page Header */}
@@ -119,7 +137,7 @@ const ReportsPage = () => {
       {/* Section 1: KPI Summary Cards */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         {[
-          { label: 'Total Clients', value: String(dashboard?.total_clients ?? 0), sub: 'active in program' },
+          { label: 'Total Clients', value: String(dashboard?.active_clients ?? 0), sub: 'active in program' },
           { label: 'Avg. Client Duration', value: `${dashboard?.avg_tenure_days ?? 0}`, sub: 'days in program' },
           { label: 'Avg. Revenue / Client', value: fmtCurrency(parseFloat(dashboard?.avg_revenue_per_client)), sub: 'from AxisCare billing' },
           { label: 'Avg. Redemptions / Client', value: fmtCurrency(parseFloat(dashboard?.avg_redemptions_per_client)), sub: 'in credit redeemed' }
@@ -141,7 +159,7 @@ const ReportsPage = () => {
             <SectionHeader title="Revenue & Points Trends" />
             {monthlyData.length > 0 ? (
               <ResponsiveContainer width="100%" height={320}>
-                <AreaChart data={monthlyData}>
+                <AreaChart data={monthlyData} onClick={(e) => { if (e?.activePayload?.[0]?.payload) handleMonthClick(e.activePayload[0].payload); }} style={{ cursor: 'pointer' }}>
                   <defs>
                     <linearGradient id="rptGradPrimary" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={CHART_COLORS.primary} stopOpacity={0.2} />
@@ -210,6 +228,8 @@ const ReportsPage = () => {
                   paddingAngle={3}
                   cornerRadius={6}
                   stroke="none"
+                  onClick={handleTierClick}
+                  cursor="pointer"
                 >
                   {pieData.map((entry, index) => (
                     <Cell key={index} fill={entry.color} />
@@ -293,8 +313,8 @@ const ReportsPage = () => {
                     return [value.toLocaleString(), name];
                   }} />
                   <Legend iconType="circle" iconSize={10} wrapperStyle={LEGEND_STYLE} />
-                  <Bar dataKey="redemptions_count" fill={CHART_COLORS.primary} name="Count" radius={[4, 4, 0, 0]} barSize={monthlyData.length > 15 ? undefined : Math.min(80, Math.floor(500 / (monthlyData.length || 1)))} />
-                  <Bar dataKey="redemptions_value" fill={CHART_COLORS.secondary} name="Value" radius={[4, 4, 0, 0]} barSize={monthlyData.length > 15 ? undefined : Math.min(80, Math.floor(500 / (monthlyData.length || 1)))} />
+                  <Bar dataKey="redemptions_count" fill={CHART_COLORS.primary} name="Count" radius={[4, 4, 0, 0]} maxBarSize={24} onClick={(data) => handleMonthClick(data, 'redeem')} cursor="pointer" />
+                  <Bar dataKey="redemptions_value" fill={CHART_COLORS.secondary} name="Value" radius={[4, 4, 0, 0]} maxBarSize={24} onClick={(data) => handleMonthClick(data, 'redeem')} cursor="pointer" />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

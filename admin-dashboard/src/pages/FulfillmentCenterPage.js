@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
-  Box, Typography, Grid, Button, Chip, Snackbar, Alert
+  Box, Typography, Grid, Button, Chip, Snackbar, Alert,
+  ToggleButton, ToggleButtonGroup
 } from '@mui/material';
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
@@ -12,6 +13,27 @@ import RedeemOutlinedIcon from '@mui/icons-material/Redeem';
 import SupportAgentOutlinedIcon from '@mui/icons-material/SupportAgentOutlined';
 import { getRedemptions, getCardRequests, getGiftClaims, getConciergeRequests } from '../services/api';
 import { frostedCardSx } from '../theme';
+
+const TIME_PERIODS = [
+  { label: '1M', months: 1 },
+  { label: '3M', months: 3 },
+  { label: '6M', months: 6 },
+  { label: 'YTD', months: 0 },
+  { label: '1Y', months: 12 },
+  { label: '2Y', months: 24 },
+  { label: '5Y', months: 60 },
+  { label: 'All', months: 999 }
+];
+
+const getDateCutoff = (periodLabel) => {
+  if (periodLabel === 'All') return null;
+  const now = new Date();
+  if (periodLabel === 'YTD') return new Date(now.getFullYear(), 0, 1);
+  const period = TIME_PERIODS.find(p => p.label === periodLabel);
+  const from = new Date(now);
+  from.setMonth(from.getMonth() - period.months);
+  return from;
+};
 
 import ServiceCreditsTab from './fulfillment/ServiceCreditsTab';
 import ProductCreditsTab from './fulfillment/ProductCreditsTab';
@@ -35,6 +57,7 @@ const FulfillmentCenterPage = () => {
   const location = useLocation();
   const [activeTab, setActiveTab] = useState(location.state?.tab ?? null);
   const [toast, setToast] = useState({ open: false, message: '', severity: 'success' });
+  const [selectedPeriod, setSelectedPeriod] = useState('All');
 
   // Navigate from DashboardPage with state.tab → open detail mode directly
   useEffect(() => {
@@ -47,17 +70,44 @@ const FulfillmentCenterPage = () => {
     serviceCredits: 0, productCredits: 0, giftCards: 0,
     requestedCards: 0, gifts: 0, concierge: 0
   });
-  const [summaryStats, setSummaryStats] = useState({
-    totalPointsRedeemed: 0, totalRedemptionAmount: 0,
-    giftsDelivered: 0, conciergeHoursCompleted: 0,
-    scAmount: 0, pcAmount: 0, gcAmount: 0
-  });
+
+  // Raw data for time-filtered summary stats
+  const [rawRedemptions, setRawRedemptions] = useState([]);
+  const [rawGifts, setRawGifts] = useState([]);
+  const [rawConcierge, setRawConcierge] = useState([]);
+
+  const summaryStats = useMemo(() => {
+    const cutoff = getDateCutoff(selectedPeriod);
+    const fulfilled = rawRedemptions.filter(r => {
+      if (r.status !== 'fulfilled') return false;
+      if (!cutoff) return true;
+      return new Date(r.fulfilled_at) >= cutoff;
+    });
+    const totalPointsRedeemed = fulfilled.reduce((sum, r) => sum + (parseFloat(r.points_redeemed) || 0), 0);
+    const totalRedemptionAmount = fulfilled.reduce((sum, r) => sum + (parseFloat(r.credit_amount) || 0), 0);
+    const scAmount = fulfilled.filter(r => !r.reward_category || r.reward_category === 'service_credit').reduce((sum, r) => sum + (parseFloat(r.credit_amount) || 0), 0);
+    const pcAmount = fulfilled.filter(r => r.reward_category === 'product_credit').reduce((sum, r) => sum + (parseFloat(r.credit_amount) || 0), 0);
+    const gcAmount = fulfilled.filter(r => r.reward_category === 'gift_card').reduce((sum, r) => sum + (parseFloat(r.credit_amount) || 0), 0);
+    const giftsDelivered = rawGifts.filter(c => {
+      if (c.status !== 'delivered') return false;
+      if (!cutoff) return true;
+      return new Date(c.updated_at || c.created_at) >= cutoff;
+    }).length;
+    const conciergeHoursCompleted = rawConcierge
+      .filter(r => {
+        if (r.status !== 'completed') return false;
+        if (!cutoff) return true;
+        return new Date(r.updated_at || r.created_at) >= cutoff;
+      })
+      .reduce((sum, r) => sum + (parseFloat(r.hours_allocated) || 0), 0);
+    return { totalPointsRedeemed, totalRedemptionAmount, giftsDelivered, conciergeHoursCompleted, scAmount, pcAmount, gcAmount };
+  }, [rawRedemptions, rawGifts, rawConcierge, selectedPeriod]);
 
   const showToast = useCallback((message, severity = 'success') => {
     setToast({ open: true, message, severity });
   }, []);
 
-  // Fetch all pending counts and summary stats on mount
+  // Fetch all pending counts and raw data on mount
   useEffect(() => {
     const fetchAllCounts = async () => {
       try {
@@ -68,7 +118,7 @@ const FulfillmentCenterPage = () => {
           getGiftClaims(),
           getConciergeRequests()
         ]);
-        // Pending counts
+        // Pending counts (not time-filtered — these are actionable items)
         const pendingRedemptions = pendingRes.data.redemptions || [];
         const sc = pendingRedemptions.filter(r => !r.reward_category || r.reward_category === 'service_credit').length;
         const pc = pendingRedemptions.filter(r => r.reward_category === 'product_credit').length;
@@ -78,19 +128,10 @@ const FulfillmentCenterPage = () => {
         const co = (conciergeRes.data.requests || []).filter(r => ['new', 'reviewing', 'quoted', 'approved', 'connected'].includes(r.status)).length;
         setCounts({ serviceCredits: sc, productCredits: pc, giftCards: gc, requestedCards: cr, gifts: gi, concierge: co });
 
-        // Summary stats from all redemptions
-        const allRedemptions = allRedemptionsRes.data.redemptions || [];
-        const fulfilled = allRedemptions.filter(r => r.status === 'fulfilled');
-        const totalPointsRedeemed = fulfilled.reduce((sum, r) => sum + (parseFloat(r.points_redeemed) || 0), 0);
-        const totalRedemptionAmount = fulfilled.reduce((sum, r) => sum + (parseFloat(r.credit_amount) || 0), 0);
-        const scAmount = fulfilled.filter(r => !r.reward_category || r.reward_category === 'service_credit').reduce((sum, r) => sum + (parseFloat(r.credit_amount) || 0), 0);
-        const pcAmount = fulfilled.filter(r => r.reward_category === 'product_credit').reduce((sum, r) => sum + (parseFloat(r.credit_amount) || 0), 0);
-        const gcAmount = fulfilled.filter(r => r.reward_category === 'gift_card').reduce((sum, r) => sum + (parseFloat(r.credit_amount) || 0), 0);
-        const giftsDelivered = (giftsRes.data.claims || []).filter(c => c.status === 'delivered').length;
-        const conciergeHoursCompleted = (conciergeRes.data.requests || [])
-          .filter(r => r.status === 'completed')
-          .reduce((sum, r) => sum + (parseFloat(r.hours_allocated) || 0), 0);
-        setSummaryStats({ totalPointsRedeemed, totalRedemptionAmount, giftsDelivered, conciergeHoursCompleted, scAmount, pcAmount, gcAmount });
+        // Store raw data for time-filtered summary stats
+        setRawRedemptions(allRedemptionsRes.data.redemptions || []);
+        setRawGifts(giftsRes.data.claims || []);
+        setRawConcierge(conciergeRes.data.requests || []);
       } catch (err) {
         console.error('Failed to fetch pending counts', err);
       }
@@ -118,32 +159,55 @@ const FulfillmentCenterPage = () => {
       {activeTab === null ? (
         /* ── Landing Mode ── */
         <>
-          <Box sx={{ mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
-              <Typography variant="h3" sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 600, color: '#2D2D2D' }}>
-                Redemptions
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3, flexWrap: 'wrap', gap: 1 }}>
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
+                <Typography variant="h3" sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 600, color: '#2D2D2D' }}>
+                  Redemptions
+                </Typography>
+                {totalPending > 0 && (
+                  <Chip
+                    label={`${totalPending} need${totalPending !== 1 ? '' : 's'} attention`}
+                    size="small"
+                    sx={{
+                      backgroundColor: 'rgba(212, 149, 106, 0.12)',
+                      color: '#C1592E',
+                      fontWeight: 600,
+                      fontSize: '12px',
+                      height: 26,
+                    }}
+                  />
+                )}
+              </Box>
+              <Typography variant="body2" sx={{ color: '#5C6B5E' }}>
+                Manage all client rewards, redemptions, and fulfillment
               </Typography>
-              {totalPending > 0 && (
-                <Chip
-                  label={`${totalPending} need${totalPending !== 1 ? '' : 's'} attention`}
-                  size="small"
-                  sx={{
-                    backgroundColor: 'rgba(212, 149, 106, 0.12)',
-                    color: '#C1592E',
-                    fontWeight: 600,
-                    fontSize: '12px',
-                    height: 26,
-                  }}
-                />
-              )}
             </Box>
-            <Typography variant="body2" sx={{ color: '#5C6B5E' }}>
-              Manage all client rewards, redemptions, and fulfillment
-            </Typography>
+            <ToggleButtonGroup
+              value={selectedPeriod}
+              exclusive
+              onChange={(_, v) => { if (v !== null) setSelectedPeriod(v); }}
+              size="small"
+              sx={{
+                '& .MuiToggleButton-root': {
+                  px: 1.5, py: 0.3, fontSize: '12px', fontWeight: 600,
+                  border: '1px solid rgba(61,74,62,0.15)', color: '#5C6B5E', textTransform: 'none',
+                  '&.Mui-selected': { backgroundColor: '#3D4A3E', color: '#fff', '&:hover': { backgroundColor: '#2A332B' } },
+                  '&:hover': { backgroundColor: 'rgba(61,74,62,0.06)' }
+                }
+              }}
+            >
+              {TIME_PERIODS.map((p) => (
+                <ToggleButton key={p.label} value={p.label}>{p.label}</ToggleButton>
+              ))}
+            </ToggleButtonGroup>
           </Box>
 
-          {/* Summary Stats Row */}
-          <Grid container spacing={3} sx={{ mb: 3 }}>
+          {/* ── Summary Stats ── */}
+          <Typography variant="subtitle2" sx={{ color: '#5C6B5E', mb: 1.5, fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', fontSize: '12px' }}>
+            Fulfillment Summary
+          </Typography>
+          <Grid container spacing={3} sx={{ mb: 4 }}>
             {[
               { label: 'Total Points Redeemed', value: summaryStats.totalPointsRedeemed.toLocaleString(), sub: 'across all categories' },
               { label: 'Total Redemption Amount', value: `$${summaryStats.totalRedemptionAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, sub: 'in fulfilled credits' },
@@ -160,6 +224,10 @@ const FulfillmentCenterPage = () => {
             ))}
           </Grid>
 
+          {/* ── Notification Center ── */}
+          <Typography variant="subtitle2" sx={{ color: '#5C6B5E', mb: 1.5, fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', fontSize: '12px' }}>
+            Notification Center
+          </Typography>
           <Box sx={{ ...frostedCardSx, p: 3, '&:hover': { transform: 'none' } }}>
             <Grid container spacing={2.5}>
               {CATEGORIES.map((cat, idx) => {

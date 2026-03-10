@@ -24,12 +24,40 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import ClearIcon from '@mui/icons-material/Clear';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getAllTransactions } from '../services/api';
 import { formatPoints, formatCurrency, formatShortDate } from '../utils/formatters';
 import { frostedCardSx } from '../theme';
 import LoadingSpinner from '../components/LoadingSpinner';
 import TierBadge from '../components/TierBadge';
+
+const TIME_PERIODS = [
+  { label: '1M', months: 1 },
+  { label: '3M', months: 3 },
+  { label: '6M', months: 6 },
+  { label: 'YTD', months: 0 },
+  { label: '1Y', months: 12 },
+  { label: '2Y', months: 24 },
+  { label: '5Y', months: 60 },
+  { label: 'All', months: 999 }
+];
+
+const computeDateRange = (periodLabel) => {
+  if (periodLabel === 'All') return { from: '', to: '' };
+  const now = new Date();
+  let from;
+  if (periodLabel === 'YTD') {
+    from = new Date(now.getFullYear(), 0, 1);
+  } else {
+    const period = TIME_PERIODS.find(p => p.label === periodLabel);
+    from = new Date(now);
+    from.setMonth(from.getMonth() - period.months);
+  }
+  return {
+    from: from.toISOString().slice(0, 10),
+    to: now.toISOString().slice(0, 10)
+  };
+};
 
 const typeFilters = [
   { value: '', label: 'All' },
@@ -49,20 +77,22 @@ const sortableColumns = [
 
 const TransactionsPage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [transactions, setTransactions] = useState([]);
   const [summary, setSummary] = useState({ total_transactions: 0, total_revenue: 0, unique_clients: 0 });
   const [pagination, setPagination] = useState({ total: 0, total_pages: 0 });
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [typeFilter, setTypeFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState(searchParams.get('type') || '');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useState(searchParams.get('date_from') || '');
+  const [dateTo, setDateTo] = useState(searchParams.get('date_to') || '');
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
+  const [selectedPeriod, setSelectedPeriod] = useState('All');
 
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
@@ -115,12 +145,22 @@ const TransactionsPage = () => {
     setPage(0);
   };
 
+  const handlePeriodChange = (_, newPeriod) => {
+    if (newPeriod === null) return;
+    setSelectedPeriod(newPeriod);
+    const range = computeDateRange(newPeriod);
+    setDateFrom(range.from);
+    setDateTo(range.to);
+    setPage(0);
+  };
+
   const handleClearFilters = () => {
     setSearchInput('');
     setSearch('');
     setTypeFilter('');
     setDateFrom('');
     setDateTo('');
+    setSelectedPeriod('All');
     setSortBy('created_at');
     setSortOrder('desc');
     setPage(0);
@@ -166,7 +206,27 @@ const TransactionsPage = () => {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>Recent Transactions</Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, flexWrap: 'wrap', gap: 1 }}>
+        <Typography variant="h4" sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 700 }}>Recent Transactions</Typography>
+        <ToggleButtonGroup
+          value={selectedPeriod}
+          exclusive
+          onChange={handlePeriodChange}
+          size="small"
+          sx={{
+            '& .MuiToggleButton-root': {
+              px: 1.5, py: 0.3, fontSize: '12px', fontWeight: 600,
+              border: '1px solid rgba(61,74,62,0.15)', color: '#5C6B5E', textTransform: 'none',
+              '&.Mui-selected': { backgroundColor: '#3D4A3E', color: '#fff', '&:hover': { backgroundColor: '#2A332B' } },
+              '&:hover': { backgroundColor: 'rgba(61,74,62,0.06)' }
+            }
+          }}
+        >
+          {TIME_PERIODS.map((p) => (
+            <ToggleButton key={p.label} value={p.label}>{p.label}</ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+      </Box>
       <Typography variant="body2" sx={{ color: '#5C6B5E', mb: 3 }}>
         All points activity across clients from AxisCare billing
       </Typography>
@@ -263,7 +323,7 @@ const TransactionsPage = () => {
             size="small"
             label="From"
             value={dateFrom}
-            onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+            onChange={(e) => { setDateFrom(e.target.value); setSelectedPeriod(''); setPage(0); }}
             InputLabelProps={{ shrink: true }}
             sx={{ width: 155 }}
           />
@@ -272,7 +332,7 @@ const TransactionsPage = () => {
             size="small"
             label="To"
             value={dateTo}
-            onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+            onChange={(e) => { setDateTo(e.target.value); setSelectedPeriod(''); setPage(0); }}
             InputLabelProps={{ shrink: true }}
             sx={{ width: 155 }}
           />

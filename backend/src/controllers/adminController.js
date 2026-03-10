@@ -17,11 +17,18 @@ const listClients = async (req, res, next) => {
     const db = require('../db');
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 50;
-    const { tier, care_package, search, sort_by, sort_order, status } = req.query;
+    const { tier, care_package, search, sort_by, sort_order, status, date_from, date_to } = req.query;
 
     const ALLOWED_SORTS = ['name', 'lifetime_points', 'redeemable_points', 'points_redeemed', 'lifetime_revenue', 'tenure_days'];
     const sortCol = ALLOWED_SORTS.includes(sort_by) ? sort_by : 'name';
     const sortDir = sort_order === 'desc' ? 'desc' : 'asc';
+
+    // Build date-scoped subqueries for revenue and redemptions
+    const dateConditions = [];
+    const dateBindings = [];
+    if (date_from) { dateConditions.push('created_at >= ?'); dateBindings.push(date_from); }
+    if (date_to) { dateConditions.push('created_at <= ?'); dateBindings.push(`${date_to}T23:59:59.999Z`); }
+    const dateFilter = dateConditions.length > 0 ? ' AND ' + dateConditions.join(' AND ') : '';
 
     let query = db('clients');
 
@@ -48,8 +55,8 @@ const listClients = async (req, res, next) => {
         'clients.unenroll_reason',
         'clients.created_at',
         db.raw("CAST(julianday('now') - julianday(clients.created_at) AS INTEGER) as tenure_days"),
-        db.raw("COALESCE((SELECT SUM(invoice_amount) FROM points_transactions WHERE client_id = clients.id AND transaction_type = 'earn'), 0) as lifetime_revenue"),
-        db.raw("COALESCE((SELECT SUM(ABS(redeemable_points_change)) FROM points_transactions WHERE client_id = clients.id AND transaction_type = 'redeem'), 0) as points_redeemed")
+        db.raw(`COALESCE((SELECT SUM(invoice_amount) FROM points_transactions WHERE client_id = clients.id AND transaction_type = 'earn'${dateFilter}), 0) as lifetime_revenue`, dateBindings),
+        db.raw(`COALESCE((SELECT SUM(ABS(redeemable_points_change)) FROM points_transactions WHERE client_id = clients.id AND transaction_type = 'redeem'${dateFilter}), 0) as points_redeemed`, dateBindings)
       );
 
     if (tier) {
@@ -75,8 +82,9 @@ const listClients = async (req, res, next) => {
     // Summary stats across all matching clients (not just current page)
     const statsResult = await baseQuery.clone().clearSelect().select(
       db.raw("SUM(CASE WHEN clients.is_active = 1 THEN 1 ELSE 0 END) as active_clients"),
-      db.raw("AVG(COALESCE((SELECT SUM(invoice_amount) FROM points_transactions WHERE client_id = clients.id AND transaction_type = 'earn'), 0)) as avg_cltv"),
-      db.raw("AVG(CAST(julianday('now') - julianday(clients.created_at) AS INTEGER)) as avg_duration_days")
+      db.raw(`AVG(COALESCE((SELECT SUM(invoice_amount) FROM points_transactions WHERE client_id = clients.id AND transaction_type = 'earn'${dateFilter}), 0)) as avg_cltv`, dateBindings),
+      db.raw("AVG(CAST(julianday('now') - julianday(clients.created_at) AS INTEGER)) as avg_duration_days"),
+      db.raw(`SUM(COALESCE((SELECT SUM(invoice_amount) FROM points_transactions WHERE client_id = clients.id AND transaction_type = 'earn'${dateFilter}), 0)) as total_revenue`, dateBindings)
     ).first();
 
     const clients = await query
@@ -89,7 +97,8 @@ const listClients = async (req, res, next) => {
         total_clients: total,
         active_clients: parseInt(statsResult?.active_clients, 10) || 0,
         avg_cltv: parseFloat(statsResult?.avg_cltv) || 0,
-        avg_duration_days: Math.round(parseFloat(statsResult?.avg_duration_days) || 0)
+        avg_duration_days: Math.round(parseFloat(statsResult?.avg_duration_days) || 0),
+        total_revenue: parseFloat(statsResult?.total_revenue) || 0
       },
       clients: clients.map((c) => ({
         id: c.id,

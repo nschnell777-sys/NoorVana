@@ -50,20 +50,28 @@ const getMonthlyStats = async (months = 6, granularity = 'month', { days } = {})
   // Clients active at any point during the period:
   //   enrolled before now AND (still active OR unenrolled after period start)
   const isSqlite = db.client.config.client === 'better-sqlite3';
-  const periodStart = isSqlite
-    ? db.raw(`date('now', 'start of month', '-${months} months')`)
-    : db.raw(`date_trunc('month', NOW() - INTERVAL '${months} months')`);
+  let periodStart;
+  if (granularity === 'week') {
+    periodStart = isSqlite
+      ? db.raw(`date('now', 'weekday 0', '-6 days', '-${months} months')`)
+      : db.raw(`date_trunc('week', NOW() - INTERVAL '${months} months')`);
+  } else if (granularity === 'day') {
+    periodStart = isSqlite
+      ? db.raw(`date('now', '-${months} months')`)
+      : db.raw(`NOW() - INTERVAL '${months} months'`);
+  } else {
+    periodStart = isSqlite
+      ? db.raw(`date('now', 'start of month', '-${months} months')`)
+      : db.raw(`date_trunc('month', NOW() - INTERVAL '${months} months')`);
+  }
 
   const periodClients = await db('clients')
-    .where('created_at', '<=', db.fn.now())
-    .andWhere(function () {
-      this.whereNull('unenrolled_at').orWhere('unenrolled_at', '>=', periodStart);
-    })
+    .where('is_active', true)
     .select(
       db.raw('COUNT(*) as count'),
       db.raw(isSqlite
-        ? "AVG(julianday(COALESCE(unenrolled_at, 'now')) - julianday(created_at)) as avg_days"
-        : "AVG(EXTRACT(EPOCH FROM (COALESCE(unenrolled_at, NOW()) - created_at)) / 86400) as avg_days"
+        ? "AVG(julianday('now') - julianday(created_at)) as avg_days"
+        : "AVG(EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400) as avg_days"
       )
     )
     .first();
@@ -72,10 +80,7 @@ const getMonthlyStats = async (months = 6, granularity = 'month', { days } = {})
   const clientsPerTierRows = await db('clients')
     .select('current_tier')
     .count('* as count')
-    .where('created_at', '<=', db.fn.now())
-    .andWhere(function () {
-      this.whereNull('unenrolled_at').orWhere('unenrolled_at', '>=', periodStart);
-    })
+    .where('is_active', true)
     .groupBy('current_tier');
 
   const clientsPerTier = { bronze: 0, silver: 0, gold: 0, platinum: 0, diamond: 0 };
@@ -83,13 +88,15 @@ const getMonthlyStats = async (months = 6, granularity = 'month', { days } = {})
     clientsPerTier[row.current_tier] = parseInt(row.count, 10);
   }
 
-  // Revenue per tier (period-filtered, based on tier at time of transaction)
+  // Revenue per tier (period-filtered, based on client's current tier)
   const revenuePerTierRows = await db('points_transactions')
-    .select('tier_at_transaction as tier')
-    .sum('invoice_amount as revenue')
-    .where('transaction_type', 'earn')
-    .andWhere('created_at', '>=', periodStart)
-    .groupBy('tier_at_transaction');
+    .join('clients', 'points_transactions.client_id', 'clients.id')
+    .select('clients.current_tier as tier')
+    .sum('points_transactions.invoice_amount as revenue')
+    .where('points_transactions.transaction_type', 'earn')
+    .andWhere('points_transactions.created_at', '>=', periodStart)
+    .andWhere('clients.is_active', true)
+    .groupBy('clients.current_tier');
 
   const revenuePerTier = { bronze: 0, silver: 0, gold: 0, platinum: 0, diamond: 0 };
   for (const row of revenuePerTierRows) {
@@ -103,6 +110,7 @@ const getMonthlyStats = async (months = 6, granularity = 'month', { days } = {})
     .sum('points_transactions.invoice_amount as revenue')
     .where('points_transactions.transaction_type', 'earn')
     .andWhere('points_transactions.created_at', '>=', periodStart)
+    .andWhere('clients.is_active', true)
     .groupBy('clients.address_state')
     .orderBy('revenue', 'desc');
 
@@ -115,10 +123,7 @@ const getMonthlyStats = async (months = 6, granularity = 'month', { days } = {})
   const clientsPerStateRows = await db('clients')
     .select('address_state as state')
     .count('* as count')
-    .where('created_at', '<=', db.fn.now())
-    .andWhere(function () {
-      this.whereNull('unenrolled_at').orWhere('unenrolled_at', '>=', periodStart);
-    })
+    .where('is_active', true)
     .groupBy('address_state')
     .orderBy('count', 'desc');
 
@@ -127,15 +132,17 @@ const getMonthlyStats = async (months = 6, granularity = 'month', { days } = {})
     count: parseInt(row.count, 10) || 0
   }));
 
-  // Lifetime revenue per client per tier (all-time, not period-filtered)
+  // Lifetime revenue per client per tier (all-time, based on client's current tier)
   const lifetimeRevPerTierRows = await db('points_transactions')
+    .join('clients', 'points_transactions.client_id', 'clients.id')
     .select(
-      'tier_at_transaction as tier',
-      db.raw('SUM(invoice_amount) as revenue'),
-      db.raw('COUNT(DISTINCT client_id) as clients')
+      'clients.current_tier as tier',
+      db.raw('SUM(points_transactions.invoice_amount) as revenue'),
+      db.raw('COUNT(DISTINCT points_transactions.client_id) as clients')
     )
-    .where('transaction_type', 'earn')
-    .groupBy('tier_at_transaction');
+    .where('points_transactions.transaction_type', 'earn')
+    .andWhere('clients.is_active', true)
+    .groupBy('clients.current_tier');
 
   const lifetimeRevPerClientPerTier = { bronze: 0, silver: 0, gold: 0, platinum: 0, diamond: 0 };
   for (const row of lifetimeRevPerTierRows) {
@@ -211,19 +218,22 @@ const getDashboardSummary = async () => {
     .orderBy('points_transactions.created_at', 'desc')
     .limit(10);
 
-  // Average client tenure in days (all clients; inactive use unenrolled_at as end date)
+  // Average client tenure in days (active clients only)
   const tenureResult = await db('clients')
-    .select(db.raw("AVG(julianday(COALESCE(unenrolled_at, 'now')) - julianday(created_at)) as avg_days"))
+    .where('is_active', true)
+    .select(db.raw("AVG(julianday('now') - julianday(created_at)) as avg_days"))
     .first();
 
   // Total clients including inactive
   const allClientsResult = await db('clients').count('* as count').first();
   const totalClientsAll = parseInt(allClientsResult.count, 10) || 0;
 
-  // Average revenue per client (total invoice amounts / number of clients with earn transactions)
+  // Average revenue per client (active clients only)
   const revenueResult = await db('points_transactions')
-    .where({ transaction_type: 'earn' })
-    .select(db.raw('SUM(invoice_amount) as total_revenue, COUNT(DISTINCT client_id) as client_count'))
+    .join('clients', 'points_transactions.client_id', 'clients.id')
+    .where('points_transactions.transaction_type', 'earn')
+    .where('clients.is_active', true)
+    .select(db.raw('SUM(points_transactions.invoice_amount) as total_revenue, COUNT(DISTINCT points_transactions.client_id) as client_count'))
     .first();
 
   // Active clients with no earn transactions in 90+ days (or never)
